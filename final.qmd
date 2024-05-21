@@ -1,0 +1,738 @@
+---
+title: "R in Medicine-Data Challenge"
+format:
+  html:
+    theme: default
+    embed-resources: true
+---
+
+
+```{r,include=FALSE}
+library(tidyverse)
+library(public.ctn0094data)
+library(public.ctn0094extra)
+library(dplyr)
+library(ggplot2)
+library(table1)
+```
+
+```{r,include=FALSE}
+data(all_drugs)
+data(psychiatric)
+data(rbs)
+data(rbs_iv)
+data(screening_date)
+data(sex)
+data(site_masked)
+data(tlfb)
+data(treatment)
+data(uds)
+data(uds_temp)
+data(visit)
+data(withdrawal)
+data(withdrawal_pre_post)
+data(asi)
+data(demographics)
+data(detox)
+data(everybody)
+data(fagerstrom)
+data(first_survey)
+data(meta_study_length)
+data(meta_substance_groups_uds)
+data(pain)
+data(randomization)
+data(derived_weeklyTLFBPattern)
+data(derived_raceEthnicity)
+```
+
+```{r,include=FALSE}
+#Opioids - clean this!
+all_opioids <- all_drugs %>% filter(what=="Buprenorphine"|what=="Codeine"|what=="Fentanyl"|what=="Heroin"|what=="Hydrocodone"
+                                |what=="Hydromorphone"|what=="Merperidine"|what=="Methadone"|what=="Opioid"
+                                |what=="Oxycodone"|what=="Oxymorphone"|what=="Propoxyphene"|what=="Suboxone"|what=="Tramadol")
+```
+
+```{r,,include=FALSE}
+treat <- randomization %>% filter(which==1) %>% select(who,treatment)
+```
+
+```{r,include=FALSE}
+psych <- psychiatric %>% select(who,has_schizophrenia,has_major_dep,has_bipolar,has_anx_pan,has_brain_damage,has_epilepsy)
+```
+
+
+```{r,include=FALSE}
+drop_data <- visit 
+
+drop_data <- mutate(drop_data,
+        drop = case_when(
+          is_no_funding==1~1,
+          is_left_study==1~1,
+          is_missing_14_consecutive==1~1,
+          is_moved==1~1,
+          (is_no_note==0|is_no_show==0|is_no_funding==0|is_left_study==0|is_missing_14_consecutive==0|is_moved==0)~0,
+          TRUE ~ NA_real_
+          ))
+
+drop_data$drop[is.na(drop_data$drop)] <- 0
+
+drop_data <- mutate(drop_data,
+        drop_28 = case_when(
+          (is_no_funding==1 & when<=28)~1,
+          (is_left_study==1 & when<=28)~1,
+          (is_missing_14_consecutive==1& when<=28)~1,
+          (is_moved==1)~1,
+          (when <=28 & (is_no_note==0|is_no_show==0|is_no_funding==0|is_left_study==0|is_missing_14_consecutive==0|is_moved==0))~0,
+          TRUE ~ NA_real_
+          ))
+
+drop_data$drop_28[is.na(drop_data$drop_28)] <- 0
+drop_data <- drop_data %>% group_by(who) %>% select(who, drop, drop_28) %>% summarize(max_drop28 = max(drop_28),
+                                                                                      max_drop = max(drop))
+```
+
+```{r,include=FALSE}
+pain <- pain %>% na.omit(pain) %>% select(who,pain)
+```
+
+```{r,include=FALSE}
+#Demographics
+dem_nona <- demographics %>% na.omit(demographics)
+temp <- inner_join(all_opioids,dem_nona,by = join_by(who))
+temp <- inner_join(temp,psych,by = join_by(who)) 
+temp <- inner_join(temp,treat,by = join_by(who))
+temp <- inner_join(temp,pain,by = join_by(who))
+temp <- inner_join(temp,drop_data,by = join_by(who))
+```
+
+```{r,include=FALSE}
+#Mental Health
+temp <- mutate(temp,
+        has_mh = case_when(
+               (has_schizophrenia=="Yes"|has_major_dep=="Yes"|has_bipolar=="Yes"|has_anx_pan=="Yes"|has_brain_damage=="Yes"|has_epilepsy=="Yes")~1,
+               (has_schizophrenia=="No"|has_major_dep=="No"|has_bipolar=="No"|has_anx_pan=="No"|has_brain_damage=="No"|has_epilepsy=="No")~0,
+               TRUE ~ NA_real_ # This is for all other values 
+             ))
+ 
+temp$has_mh <- 
+  factor(temp$has_mh, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+
+temp <- mutate(temp,
+        Drop = case_when(
+          max_drop==1~1,
+          max_drop==0~0,
+          TRUE ~ NA_real_
+          ))
+temp$Drop <- 
+  factor(temp$Drop, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Drop28 = case_when(
+          max_drop28==1~1,
+          max_drop28==0~0,
+          TRUE ~ NA_real_
+          ))
+temp$Drop28 <- 
+  factor(temp$Drop28, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Buprenorphine = case_when(
+          what=="Buprenorphine"~1,
+          what!="Buprenorphine"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Buprenorphine <- 
+  factor(temp$Buprenorphine, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Codeine = case_when(
+          what=="Codeine"~1,
+          what!="Codeine"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Codeine <- 
+  factor(temp$Codeine, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Fentanyl = case_when(
+          what=="Fentanyl"~1,
+          what!="Fentanyl"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Fentanyl <- 
+  factor(temp$Fentanyl, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+
+temp <- mutate(temp,
+        Heroin = case_when(
+          what=="Heroin"~1,
+          what!="Heroin"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Heroin <- 
+  factor(temp$Heroin, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Hydrocodone = case_when(
+          what=="Hydrocodone"~1,
+          what!="Hydrocodone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Hydrocodone <- 
+  factor(temp$Hydrocodone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Hydromorphone = case_when(
+          what=="Hydromorphone"~1,
+          what!="Hydromorphone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Hydromorphone <- 
+  factor(temp$Hydromorphone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Merperidine = case_when(
+          what=="Merperidine"~1,
+          what!="Merperidine"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Merperidine <- 
+  factor(temp$Merperidine, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Methadone = case_when(
+          what=="Methadone"~1,
+          what!="Methadone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Methadone <- 
+  factor(temp$Methadone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Opioid = case_when(
+          what=="Opioid"~1,
+          what!="Opioid"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Opioid <- 
+  factor(temp$Opioid, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Oxycodone = case_when(
+          what=="Oxycodone"~1,
+          what!="Oxycodone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Oxycodone <- 
+  factor(temp$Oxycodone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Oxymorphone = case_when(
+          what=="Oxymorphone"~1,
+          what!="Oxymorphone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Oxymorphone <- 
+  factor(temp$Oxymorphone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Propoxyphene = case_when(
+          what=="Propoxyphene"~1,
+          what!="Propoxyphene"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Propoxyphene <- 
+  factor(temp$Propoxyphene, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+temp <- mutate(temp,
+        Suboxone = case_when(
+          what=="Suboxone"~1,
+          what!="Suboxone"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Suboxone <- 
+  factor(temp$Suboxone, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+temp <- mutate(temp,
+        Tramadol = case_when(
+          what=="Tramadol"~1,
+          what!="Tramadol"~0,
+          TRUE ~ NA_real_
+          ))
+temp$Tramadol <- 
+  factor(temp$Tramadol, 
+         levels=c(0,1),
+         labels=c("No", # Reference
+                  "Yes"
+                  ))
+
+
+temp <- mutate(temp,
+        Age = case_when(
+          (age>=18 & age<=24)~1,
+          (age>=25 & age<=34)~2,
+          (age>=35 & age<=44)~3,
+          (age>=45 & age<=49)~4,
+          (age>=50 & age<=54)~5,
+          (age>=55 & age<=64)~6,
+          (age>=65)~7,
+          TRUE ~ NA_real_
+          ))
+
+temp$Age <- 
+  factor(temp$Age, 
+         levels=c(1,2,3,4,5,6,7),
+         labels=c("18-24", # Reference
+                  "25-34",
+                  "35-44",
+                  "45-49",
+                  "50-54",
+                  "55-64",
+                  "65+"
+                  ))
+
+
+temp <- mutate(temp,
+        pain = case_when(
+          pain=="No Pain"~0,
+          pain=="Severe Pain"~2,
+          pain=="Very mild to Moderate Pain"~1,
+          TRUE ~ NA_real_
+          ))
+temp$pain <- 
+  factor(temp$pain, 
+         levels=c(0,1,2),
+         labels=c("No pain", # Reference
+                  "Mild pain",
+                  "Severe pain"
+                  ))
+
+temp <- mutate(temp,
+        trt = case_when(
+          treatment=="Inpatient BUP"~1,
+          treatment=="Inpatient NR-NTX"~2,
+          treatment=="Methadone"~3,
+          treatment=="Outpatient BUP"~4,
+          treatment=="Outpatient BUP + EMM"~4,
+          treatment=="Outpatient BUP + SMM"~4,
+          TRUE ~ NA_real_
+          ))
+temp$trt <- 
+  factor(temp$trt, 
+         levels=c(1,2,3,4),
+         labels=c("Inpatient BUP", # Reference
+                  "Inpatient NR-NTX",
+                  "Methadone",
+                  "Outpatient (Control Arm)"
+                  ))
+
+
+temp$Employed <- temp$job
+temp$StableHousing <- temp$is_living_stable
+temp$Hispanic <- temp$is_hispanic
+temp$Education <- temp$education
+temp$AnyMentalHealth <- temp$has_mh
+temp$Pain <- temp$pain
+temp$Race <- temp$race
+temp$MaritalStatus <- temp$marital
+temp$Male <- temp$is_male
+```
+
+## Introduction
+
+In this project, we use randomization to a treatment arm — Inpatient BUP, Inpatient NR-NTX, Methadone — as opposed to being randomized to outpatient treatment, to  study the association between receiving treatment and the likelihood of dropping out of treatment among opioid-using individuals in the study. 
+
+## Inclusion Criteria
+
+We restrict our sample to individuals who report to using Heroin, Fentanyl, Codeine, Hydrocodone, Hydromorphone, Meperidine, Opioid, Oxycodone, Oxymorphone, Propoxyphene, Suboxone, Tramadol, Methadone and Buprenorphine during the study period. We also restrict our sample to individuals who have no missing data in the demographics file. 
+
+## Outcomes, Key Independent Variable and Covariates
+
+The main outcome of our analysis is whether or not an individual dropped out after being randomized into a treatment arm of the study. An individual in the dataset is classified as having dropped out if they left the study, could not attend a session due to funding issue, and if they missed fourteen consecutive appointments. The variables used to derive this data have a lot of missingness, so we code missing observations in the said variables as 0 if they are missing. 
+
+The main independent variable is the treatment variable which indicates the treatment arm where the study subject received treatment. Since this is endogenous to being randomized to the treatment arm, we use randomization to a said treatment arm as an instrumental variable to study the effect of receiving treatment. An individual is categorized as being “treated” if they received Buprenorphine before dropping out in the Inpatient BUP, Methadone in the Methadone treatment arm, and received either Buprenorphine or Methadone in the Inpatient NR-NTX treatment arm. 
+
+Across all analysis, we control for demographic variables of age, sex, race, ethnicity, employment status, marital status. We also include control for whether or not someone has a any mental health condition, severity of pain indicated by the study subject, and type of opioids — Heroin, Prescription Opioids, other — used by the study subject. 
+
+## Methods
+We conducted an instrumental variables (IV) analyses. The instrument approximates random assignment of study subjects to treatment groups, in our case to four treatment arms  — Inpatient BUP, Inpatient NR-NTX, Methadone, Outpatient BUP — of the study. Outpatient BUP is being considered the control group. We use randomization to a said treatment arm as an instrument to study the effect of receiving treatment. To avoid the complexity of working with an nominal instrumental variable, we stratify our analysis by treatment arms. We compare the likelihood of dropping out between — the Inpatient BUP treatment arm and  Outpatient treatment arm, Inpatient NR-NTX treatment arm and Outpatient treatment arm and the Methadone and Outpatient treatment arm. Across all three analyses, we conducted a two stage regression. In the first stage regression, we first tested whether the instrument — random assignment of study subjects to treatment groups — was correlated with the treatment of interest. We found that across all treatment arms, being randomized into a said treatment arm was positively and significantly associated with the probability of receiving treatment. We then calculated predicted probabilities from the first stage regression and regressed the likelihood of dropping out of treatment on the predicted values of being treated in a given arm. The coefficient on this variable will be our coefficient of interest — the local average treatment effect of being treated on the likelihood of dropping out. 
+
+## Results 
+## Characteristics of the Sample
+There are 1355 unique individuals in the dataset who report to using opioids. Of these 1355 individuals, 281 were randomized to the Inpatient BUP arm, 264 to the Inpatient NR-NTX arm, 80 to the methadone treatment arm, and 730 to the outpatient treatment arm. Majority of the sample (42.8%) is 25-34 years old; majority of the sample is white (82%) and male (65%); majority of the sample (73.1%) is employed, and majority (41.7%) report to having more than high school education. Majority of the sample report to using Heroin, have mental health conditions, and indicate towards having mild pain. Overall, around 5.8% of the study subjects drop out during the study period, with lowest drop out in the Inpatient BUP arm of 3.2% and highest drop in the Methadone treatment arm of 8.8%. (See Table 1) However, if we look at subjects dropping out of the study within 28 days, we find that the likelihood of dropping out of treatment is highest among the inpatient treatments. We also note no dropouts withing 28 days from the Methadone treatment arm, and a relatively rate of drop out among study subjects in the outpatient treatment arm. 
+
+
+### Table 1: Characteristics of the Study Sample 
+
+```{r,echo=FALSE}
+library(table1)
+temp1 <- temp 
+temp1 <- temp1 %>% group_by(who) %>% slice(1)
+tab1 <-table1(~ Age+Hispanic+Employed+StableHousing+Education+MaritalStatus+Male+Codeine+Heroin+Fentanyl+Hydrocodone+Hydromorphone+Merperidine+Opioid+Oxycodone+Oxymorphone+Propoxyphene+Tramadol+AnyMentalHealth+Pain+Drop+Drop28|trt, data=temp1) 
+tab1
+```
+
+```{r,,include=FALSE} 
+ip_bup <- temp 
+ip_bup <- ip_bup %>% filter(when>=0) %>% filter(treatment=="Inpatient BUP"|treatment=="Outpatient BUP"|treatment=="Outpatient BUP + EMM"|treatment=="Outpatient BUP + SMM")
+ip_bup <- mutate(ip_bup,
+        treated = case_when(
+          (treatment=="Inpatient BUP")~1,
+          (treatment!="Inpatient BUP")~0,
+          TRUE ~ NA_real_
+          ))
+ip_bup <- mutate(ip_bup,
+        ip = case_when(
+          (treatment=="Inpatient BUP" & what=="Buprenorphine" & when>0 & when<=15)~1,
+          (treatment=="Inpatient BUP"& what=="Buprenorphine" & when>15)~0,
+          TRUE ~ NA_real_
+          ))
+ip_bup$ip[is.na(ip_bup$ip)] <- 0
+ip_bup <- ip_bup %>% filter(when>=0)
+
+
+#Cleaning Variables
+ip_bup <- mutate(ip_bup,
+        marital = case_when(
+          (marital=="Married or Partnered")~1,
+          (marital!="Married or Partnered")~0,
+          TRUE ~ NA_real_
+          ))
+
+ip_bup <- mutate(ip_bup,
+        race = case_when(
+          (race=="White")~0,
+          (race=="Black")~1,
+          (race!="White"|race!="Black")~2,
+          TRUE ~ NA_real_
+          ))
+
+ip_bup <- mutate(ip_bup,
+        employed = case_when(
+          (job=="Full Time"|job=="Part Time")~1,
+          (job!="Full Time"|job!="Part Time")~0,
+          TRUE ~ NA_real_
+          ))
+
+ip_bup <- mutate(ip_bup,
+        drg = case_when(
+          (what=="Heroin")~0,
+          (what=="Oxycodone")~1,
+          (what!="Heroin"|what!="Oxycodone")~2,
+          TRUE ~ NA_real_
+          ))
+```
+
+```{r,include=FALSE}
+r1 <- lm(max_drop~treated,data=ip_bup)
+r2 <- lm(ip~treated+as.factor(Age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_bup)
+ip_bup$ip_pred <- r2$fitted.values
+r3 <- lm(max_drop~ip_pred+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_bup)
+```
+
+```{r,include=FALSE}
+r11 <- lm(max_drop28~treated,data=ip_bup)
+r21 <- lm(ip~treated+as.factor(Age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_bup)
+ip_bup$ip_pred <- r2$fitted.values
+r31 <- lm(max_drop28~ip_pred+as.factor(Age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_bup)
+```
+
+
+```{r,include=FALSE}
+meth <- temp 
+meth <- meth %>% filter(when>=0) %>% filter(treatment=="Methadone"|treatment=="Outpatient BUP"|treatment=="Outpatient BUP + EMM"|treatment=="Outpatient BUP + SMM")
+meth <- mutate(meth,
+        treated = case_when(
+          (treatment=="Methadone")~1,
+          (treatment!="Methadone")~0,
+          TRUE ~ NA_real_
+          ))
+meth <- mutate(meth,
+        meth_use = case_when(
+          (treatment=="Methadone" & what=="Methadone" & when>0 )~1,
+          (treatment=="Methadone"& what!="Methadone")~0,
+          TRUE ~ NA_real_
+          ))
+meth$meth_use[is.na(meth$meth_use)] <- 0
+
+
+#Cleaning Variables
+meth <- mutate(meth,
+        marital = case_when(
+          (marital=="Married or Partnered")~1,
+          (marital!="Married or Partnered")~0,
+          TRUE ~ NA_real_
+          ))
+
+meth <- mutate(meth,
+        race = case_when(
+          (race=="White")~0,
+          (race=="Black")~1,
+          (race!="White"|race!="Black")~2,
+          TRUE ~ NA_real_
+          ))
+
+meth <- mutate(meth,
+        employed = case_when(
+          (job=="Full Time"|job=="Part Time")~1,
+          (job!="Full Time"|job!="Part Time")~0,
+          TRUE ~ NA_real_
+          ))
+
+meth <- mutate(meth,
+        drg = case_when(
+          (what=="Heroin")~0,
+          (what=="Oxycodone")~1,
+          (what!="Heroin"|what!="Oxycodone")~2,
+          TRUE ~ NA_real_
+          ))
+```
+
+```{r,include=FALSE}
+m1 <- lm(max_drop28~treated,data=meth)
+broom::tidy(m1,conf.int=TRUE)
+m2 <- lm(meth_use~treated+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+as.factor(drg)+is_living_stable+has_mh,data=meth)
+broom::tidy(m2,conf.int=TRUE)
+meth$meth_pred <- m2$fitted.values
+m3 <- lm(max_drop28~meth_pred+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(drg)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=meth)
+broom::tidy(m3,conf.int=TRUE)
+```
+
+
+```{r,include=FALSE}
+ip_2 <- temp 
+ip_2 <- ip_2 %>% filter(when>=0)  %>% filter(treatment=="Inpatient NR-NTX"|treatment=="Outpatient BUP"|treatment=="Outpatient BUP + EMM"|treatment=="Outpatient BUP + SMM")
+
+ip_2 <- mutate(ip_2,
+        treated = case_when(
+          (treatment=="Inpatient NR-NTX")~1,
+          (treatment!="Inpatient NR-NTX")~0,
+          TRUE ~ NA_real_
+          ))
+ip_2 <- mutate(ip_2,
+        ip_nx = case_when(
+          (what=="Methadone" & treatment=="Inpatient NR-NTX" & when>=0)~1,
+          (what=="Buprenorphine" & treatment=="Inpatient NR-NTX" & when>=0)~1,
+          (what!="Buprenorphine" & treatment!="Inpatient NR-NTX" & when>=0)~0,
+          (what!="Methadone" & treatment!="Inpatient NR-NTX" & when>=0)~0,
+          TRUE ~ NA_real_
+          ))
+ip_2$ip_nx[is.na(ip_2$ip_nx)] <- 0
+
+#Cleaning Variables
+ip_2 <- mutate(ip_2,
+        marital = case_when(
+          (marital=="Married or Partnered")~1,
+          (marital!="Married or Partnered")~0,
+          TRUE ~ NA_real_
+          ))
+
+ip_2 <- mutate(ip_2,
+        race = case_when(
+          (race=="White")~0,
+          (race=="Black")~1,
+          (race!="White"|race!="Black")~2,
+          TRUE ~ NA_real_
+          ))
+
+ip_2 <- mutate(ip_2,
+        employed = case_when(
+          (job=="Full Time"|job=="Part Time")~1,
+          (job!="Full Time"|job!="Part Time")~0,
+          TRUE ~ NA_real_
+          ))
+
+ip_2 <- mutate(ip_2,
+        drg = case_when(
+          (what=="Heroin")~0,
+          (what=="Oxycodone")~1,
+          (what!="Heroin"|what!="Oxycodone")~2,
+          TRUE ~ NA_real_
+          ))
+
+
+```
+
+```{r,include=FALSE}
+n1 <- lm(max_drop~treated,data=ip_2)
+broom::tidy(n1,conf.int=TRUE)
+n2 <- lm(ip_nx~treated+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+as.factor(drg)+is_living_stable+has_mh,data=ip_2)
+broom::tidy(n2,conf.int=TRUE)
+ip_2$ipnx_pred <- n2$fitted.values
+n3 <- lm(max_drop~ipnx_pred+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(drg)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_2)
+broom::tidy(n3,conf.int=TRUE)
+```
+
+```{r,include=FALSE}
+n11 <- lm(max_drop28~treated,data=ip_2)
+broom::tidy(n1,conf.int=TRUE)
+n21 <- lm(ip_nx~treated+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(employed)+as.factor(pain)+as.factor(drg)+is_living_stable+has_mh,data=ip_2)
+broom::tidy(n2,conf.int=TRUE)
+ip_2$ipnx_pred <- n2$fitted.values
+n31 <- lm(max_drop28~ipnx_pred+as.factor(age)+as.factor(education)+as.factor(race)+as.factor(marital)+as.factor(drg)+as.factor(employed)+as.factor(pain)+is_living_stable+has_mh,data=ip_2)
+broom::tidy(n3,conf.int=TRUE)
+```
+
+```{r,include=FALSE}
+data_itt <- data.frame(
+  Arm = c("Methadone","IP-BUP","IP NR-NTX","Methadone","IP-BUP","IP NR-NTX"),
+  ITT = c(-0.028,-0.042,-0.035,0,0.019,0.025),
+  low = c(-0.0368,-0.047,-0.041,0,0.016,0.022),
+  high = c(-0.018,-0.037,-0.029,0,0.022,0.028),
+  cat = c(0,0,0,1,1,1)
+)
+
+data_itt$catt <- c("Dropout Anytime","Dropout Anytime","Dropout Anytime","Dropout within 28 days","Dropout within 28 days","Dropout within 28 days")
+```
+
+## Instrumental Variables Analysis
+
+In the first stage of the IV analyses, we find that, across all treatment arms, randomization to treatment arm is positively and significantly associated with the probability of receiving treatment. We  calculate the intent to treat (ITT) estimate and find that compared to being assigned to the outpatient treatment arm, being assigned to each of the inpatient treatment arms, and Methadone treatment is negatively associated with the risk of dropping out of treatment across all treatment arms. However, when we look at the risk of dropping out within 28 days in the inpatient treatment arms (we exclude Methadone treatment because, no one dropped out of Methadone treatment in the first 28 days), we find that compared to being assigned to the outpatient treatment arm, being assigned to each of the inpatient treatment arms, is positively associated with the likelihood of dropping out of the study within the first 28 days (See Figure 1).
+
+## Figure 1: Intent-to-Treat (ITT) Estimates
+
+```{r}
+a1 <- ggplot(data_itt, aes(x = ITT, y = Arm, group=interaction(Arm,cat),color=catt)) +
+  geom_point(position=position_dodge(width=0.5)) +
+  geom_vline(xintercept = 0,color = "black", size=0.7) +
+  geom_errorbar(aes(xmin = low, xmax = high,y = Arm),
+                 width = .1,position=position_dodge(width=0.5)) +
+  theme_bw() + ylab("") + xlim(-0.06,0.06) +xlab("Difference in Risk of Dropout \n (compared to Outpatient Treatment Arm)") + labs(color = "ITT Estimates",size=8) +theme(axis.title.x = element_text(size = 10))
+a1
+```
+
+In our IV analysis we found that compared to being randomized to the outpatient treatment arm, there is a negative association between the likelihood of dropping out associated with the likelihood of dropping out of treatment across all treatment arms.Compared to being randomized to the outpatient treatment the likelihood of dropping out of treatment is smallest for the Inpatient BUP treatment and highest for the Methadone treatment arm. However, if we analyze the risk of dropping out withing 28 days we find that compared to being randomized to the outpatient treatment arm, there is a positive association between receiving inpatient treatment and likelihood of dropping out within 28 days, across all treatment arms. The risk of dropping out with 28 days is highest for the Inpatient BUP treatment arm (See Figure 2). 
+
+## Figure 2: Local Average Treatment Effect (LATE) Estimates
+
+```{r,include=FALSE}
+data_late <- data.frame(
+  Arm = c("Methadone","IP-BUP","IP NR-NTX","Methadone","IP-BUP","IP NR-NTX"),
+  late = c(-0.058,-1.689,-0.139,0,0.327,0.05),
+  low = c(-0.078,-1.884,-0.162,0,0.198,0.03),
+  high = c(-0.038,-1.493,-0.115,0,0.455,0.07),
+  cat = c(0,0,0,1,1,1)
+)
+
+data_late$catt <- c("Dropout Anytime","Dropout Anytime","Dropout Anytime","Dropout within 28 days","Dropout within 28 days","Dropout within 28 days")
+```
+
+```{r,echo=FALSE,warning=FALSE}
+a1 <- ggplot(data_late, aes(x = late, y = Arm, group=interaction(Arm,cat),color=catt)) +
+  geom_point(position=position_dodge(width=0.5)) +
+  geom_vline(xintercept = 0,color = "black", size=0.7) +
+  geom_errorbar(aes(xmin = low, xmax = high,y = Arm),
+                 width = .1,position=position_dodge(width=0.5)) +
+  theme_bw() + ylab("") + xlim(-2,2) +xlab("Difference in Risk of Dropout \n (compared to Outpatient Treatment Arm)") + labs(color = "LATE Estimates",size=8) +theme(axis.title.x = element_text(size = 10))
+a1
+```
+
+## Appendix
+
+## Regression Results
+
+### ITT: IP BUP v. Outpatient
+```{r,echo=FALSE,echo=FALSE}
+broom::tidy(r1,conf.int=TRUE)
+```
+### First Stage: IP BUP v. Outpatient
+```{r,echo=FALSE,include=FALSE}
+broom::tidy(r2,conf.int=TRUE)
+```
+### LATE: IP BUP v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(r3,conf.int=TRUE)
+```
+
+
+### ITT: Methadone v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(m1,conf.int=TRUE)
+```
+### First Stage: Methadone v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(m2,conf.int=TRUE)
+```
+### LATE: Methadone v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(m3,conf.int=TRUE)
+```
+
+
+### ITT: IP NR-NTX v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(n1,conf.int=TRUE)
+```
+### First Stage: IP NR-NTX v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(n2,conf.int=TRUE)
+```
+### LATE: IP NR-NTX v. Outpatient
+```{r,echo=FALSE}
+broom::tidy(n3,conf.int=TRUE)
+```
+
